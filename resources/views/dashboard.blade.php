@@ -1,281 +1,409 @@
-<?php
-use Illuminate\Support\Facades\DB;
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user'])) {
-    header('Location: /');
-    exit;
-}
-
-$pdo = DB::connection()->getPdo();
-
-$errors = [];
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'quick_add') {
-    $name       = trim($_POST['name'] ?? '');
-    $categoryId = intval($_POST['category_id'] ?? 0);
-    $price      = floatval($_POST['price'] ?? 0);
-    $stock      = intval($_POST['stock'] ?? 0);
-    $sku        = 'SKU-' . strtoupper(substr(md5(uniqid()), 0, 6));
-
-    if (empty($name) || !$categoryId || $price <= 0) {
-        $errors[] = 'Nama, Kategori, dan Harga wajib diisi dengan benar.';
-    }
-
-    if (empty($errors)) {
-        try {
-            $stmt = $pdo->prepare('INSERT INTO products (name, category_id, price, stock, sku) VALUES (:name, :category_id, :price, :stock, :sku)');
-            $stmt->execute([
-                'name'        => $name,
-                'category_id' => $categoryId,
-                'price'       => $price,
-                'stock'       => $stock,
-                'sku'         => $sku
-            ]);
-            header('Location: /dashboard');
-            exit;
-        } catch (Exception $e) {
-            $errors[] = 'Gagal menyimpan: ' . $e->getMessage();
-        }
-    }
-}
-
-$categoryId = isset($_GET['category_id']) ? intval($_GET['category_id']) : 0;
-$query = "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id";
-if ($categoryId > 0) {
-    $query .= " WHERE p.category_id = " . $categoryId;
-}
-$query .= " ORDER BY p.id DESC";
-
-$products = $pdo->query($query)->fetchAll();
-$categories = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
-
-$totalProducts = count($pdo->query("SELECT id FROM products")->fetchAll());
-$totalStock = $pdo->query("SELECT SUM(stock) FROM products")->fetchColumn() ?? 0;
-$totalNilai = $pdo->query("SELECT SUM(price * stock) FROM products")->fetchColumn() ?? 0;
-$lowStockCount = $pdo->query("SELECT COUNT(*) FROM products WHERE stock <= 5")->fetchColumn() ?? 0;
-?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MahzaGlow - Dashboard & Katalog</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>Dashboard Analytics - GlowDesk</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; }
-        body { background: #0f172a; padding: 32px 24px; color: #0f172a; min-height: 100vh; height: auto; display: flex; justify-content: center; align-items: flex-start; }
-        .app-board { width: 100%; max-width: 1440px; background: #f8fafc; border-radius: 32px; padding: 32px; margin-bottom: 40px; }
-        .board-grid-sidebar { display: grid; grid-template-columns: 250px 1fr 340px; gap: 24px; align-items: start; }
-        
-        /* Sidebar Kiri */
-        .sidebar-left { background: #ffffff; border-radius: 24px; padding: 24px 18px; border: 1px solid #f1f5f9; display: flex; flex-direction: column; justify-content: space-between; min-height: 800px; }
-        .brand-wrapper { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px dashed #e2e8f0; margin-bottom: 24px; }
-        .brand-icon-glow { width: 44px; height: 44px; background: #0072ff; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 20px; }
-        .brand-title-text { font-size: 19px; font-weight: 800; color: #0f172a; }
-        .brand-subtitle { font-size: 10px; color: #64748b; font-weight: 700; }
-        .side-nav-menu { display: flex; flex-direction: column; gap: 8px; }
-        .nav-pill-side { padding: 12px 16px; border-radius: 16px; font-size: 13px; font-weight: 700; color: #64748b; text-decoration: none; display: flex; align-items: center; gap: 12px; transition: 0.2s; }
-        .nav-pill-side.active { background: #0072ff; color: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 114, 255, 0.3); }
-        .sidebar-promo-card { background: #0f172a; border-radius: 20px; padding: 18px; margin-top: 28px; color: white; }
-        .user-profile-badge-side { display: flex; align-items: center; gap: 12px; background: #f8fafc; padding: 12px; border-radius: 20px; }
-        .user-avatar-circle { width: 38px; height: 38px; background: #0072ff; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; }
-        
-        /* Area Tengah Katalog & Banner */
-        .main-catalog-area { display: flex; flex-direction: column; gap: 20px; }
-        .hero-banner { background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0072ff 100%); border-radius: 24px; padding: 28px; color: white; display: flex; flex-direction: column; justify-content: space-between; }
-        
-        .category-bar { display: flex; gap: 8px; flex-wrap: wrap; }
-        .cat-chip { padding: 9px 16px; border-radius: 14px; font-size: 12px; font-weight: 700; background: #ffffff; color: #64748b; text-decoration: none; border: 1px solid #e2e8f0; transition: 0.2s; }
-        .cat-chip.active { background: #0072ff; color: #ffffff; border-color: #0072ff; }
-        
-        .products-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-        .product-card { background: #ffffff; border-radius: 20px; padding: 20px; border: 1px solid #f1f5f9; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
-        .card-header-tag { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .tag-category { background: #e0f2fe; color: #0284c7; font-size: 10px; font-weight: 800; padding: 6px 12px; border-radius: 10px; text-transform: uppercase; }
-        .tag-stock { font-size: 11px; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 4px; }
-        .product-title { font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
-        .product-price { font-size: 18px; font-weight: 800; color: #0072ff; margin-bottom: 16px; }
-        .card-actions { display: flex; gap: 8px; }
-        .btn-action-edit { flex: 1; padding: 10px; background: #f1f5f9; color: #334155; border-radius: 12px; text-align: center; font-weight: 700; font-size: 12px; text-decoration: none; }
-        .btn-action-delete { flex: 1; padding: 10px; background: #fef2f2; color: #ef4444; border-radius: 12px; text-align: center; font-weight: 700; font-size: 12px; text-decoration: none; }
+        :root {
+            --bg-main: #fcf8f5;
+            --bg-sidebar: #f5ebe4;
+            --sidebar-active: #e8d7cb;
+            --text-dark: #332723;
+            --brand-accent: #b08974;
+            --brand-dark: #3d2f2b;
+        }
 
-        /* Panel Kanan */
-        .right-panel { display: flex; flex-direction: column; gap: 18px; }
-        .summary-card-top { background: #ffffff; border-radius: 20px; padding: 20px; border: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
-        .warning-card { background: #ffffff; border-radius: 20px; padding: 20px; border: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #f59e0b; }
-        .form-quick-card { background: #ffffff; border-radius: 24px; padding: 22px; border: 1px solid #f1f5f9; }
-        input, select { width: 100%; padding: 12px 16px; border: 1.5px solid #e2e8f0; border-radius: 14px; font-size: 13px; background: #ffffff; outline: none; margin-top: 6px; margin-bottom: 14px; }
-        label { font-size: 11px; font-weight: 800; color: #475569; display: block; text-transform: uppercase; }
-        .btn-primary-blue { padding: 13px; background: #0072ff; border: none; border-radius: 14px; color: #ffffff; font-weight: 800; font-size: 13px; cursor: pointer; text-align: center; width: 100%; }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-dark);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .sidebar {
+            width: 260px;
+            background-color: var(--bg-sidebar);
+            min-height: 100vh;
+            padding: 20px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            z-index: 100;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .brand-icon {
+            width: 42px;
+            height: 42px;
+            background: #c5a089;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 20px;
+            box-shadow: 0 4px 10px rgba(197, 160, 137, 0.3);
+        }
+
+        .nav-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .nav-item-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            color: var(--text-dark);
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .nav-item-link:hover, .nav-item-link.active {
+            background-color: var(--sidebar-active);
+            color: var(--text-dark);
+        }
+
+        .main-content {
+            margin-left: 260px;
+            padding: 30px;
+        }
+
+        /* Hero Banner Luxury */
+        .hero-banner {
+            background: linear-gradient(135deg, #3d2f2b 0%, #59453f 100%);
+            border-radius: 20px;
+            color: #ffffff;
+            padding: 28px 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 25px rgba(61, 47, 43, 0.15);
+        }
+
+        .card-custom {
+            background: #ffffff;
+            border-radius: 16px;
+            border: 1px solid #f0e4dc;
+            padding: 22px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card-custom:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(61, 47, 43, 0.05) !important;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
+
+        .icon-box-1 { background: #fff4ec; color: #e67e22; }
+        .icon-box-2 { background: #edf7ed; color: #27ae60; }
+        .icon-box-3 { background: #eef7fc; color: #2980b9; }
+        .icon-box-4 { background: #f6edf9; color: #8e44ad; }
     </style>
 </head>
 <body>
 
-<div class="app-board">
-    <div class="board-grid-sidebar">
-        
-        <!-- Sidebar Kiri -->
-        <div class="sidebar-left">
+<aside class="sidebar">
+    <div>
+        <div class="brand-logo">
+            <div class="brand-icon"><i class="bi bi-flower1"></i></div>
             <div>
-                <div class="brand-wrapper">
-                    <div class="brand-icon-glow">M</div>
-                    <div>
-                        <span class="brand-title-text">MahzaGlow</span>
-                        <div class="brand-subtitle">Skincare Inventory System</div>
-                    </div>
-                </div>
-
-                <nav class="side-nav-menu">
-                    <a href="/dashboard" class="nav-pill-side active">📊 Dashboard</a>
-                    <a href="/catalog" class="nav-pill-side">🧴 Katalog Skincare</a>
-                    <a href="/stock/in" class="nav-pill-side">📥 Barang Masuk</a>
-                    <a href="/stock/out" class="nav-pill-side">📤 Barang Keluar</a>
-                </nav>
-
-                <div class="sidebar-promo-card">
-                    <span style="font-size: 22px;">✨</span>
-                    <h5 style="font-size: 12px; font-weight: 800; color: #38bdf8; margin: 6px 0 2px 0;">Live Inventory System</h5>
-                    <p style="font-size: 10px; color: #94a3b8; font-weight: 600;">Otomatisasi Stok Terpusat</p>
-                </div>
-            </div>
-
-            <div class="user-profile-badge-side">
-                <div class="user-avatar-circle"><?= strtoupper(substr($_SESSION['user']['username'] ?? 'A', 0, 1)) ?></div>
-                <div style="flex:1;">
-                    <p style="font-size:12px; font-weight:800; color:#0f172a; margin:0;"><?= htmlspecialchars($_SESSION['user']['username'] ?? 'Admin') ?></p>
-                    <span style="font-size:9px; color:#64748b; font-weight:700; text-transform:uppercase;"><?= htmlspecialchars($_SESSION['user']['role'] ?? 'ADMIN') ?></span>
-                </div>
-                <a href="/logout" style="font-size:11px; color:#ef4444; font-weight:800; text-decoration:none;">Logout</a>
+                <h6 class="mb-0 fw-bold">GlowDesk</h6>
+                <small class="text-muted" style="font-size: 11px;">Skincare Inventory & POS</small>
             </div>
         </div>
 
-        <!-- Area Tengah (Banner, Kategori, & Grid Produk Katalog) -->
-        <div class="main-catalog-area">
-            
-            <div class="hero-banner">
-                <div>
-                    <span style="font-size: 10px; font-weight: 800; opacity: 0.8; text-transform: uppercase;">TOTAL NILAI INVENTARIS</span>
-                    <h2 style="font-size: 28px; font-weight: 800; margin: 6px 0;">Rp <?= number_format($totalNilai, 0, ',', '.') ?></h2>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 11px; opacity: 0.85;">
-                    <span>Sistem Sinkronisasi:</span>
-                    <span style="background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 8px; font-weight: 700;">🟢 Real-time Engine</span>
-                </div>
-            </div>
+        <ul class="nav-menu">
+            <li>
+                <a href="{{ route('dashboard') }}" class="nav-item-link {{ request()->routeIs('dashboard') ? 'active' : '' }}">
+                    <i class="bi bi-pie-chart-fill"></i> Dashboard
+                </a>
+            </li>
 
-            <div class="category-bar">
-                <a href="/dashboard" class="cat-chip <?= $categoryId === 0 ? 'active' : '' ?>">Semua Kategori</a>
-                <?php foreach ($categories as $cat): ?>
-                    <a href="/dashboard?category_id=<?= $cat['id'] ?>" class="cat-chip <?= $categoryId === (int)$cat['id'] ? 'active' : '' ?>">
-                        <?= htmlspecialchars($cat['name']) ?>
+            @if(auth()->check() && strtolower(auth()->user()->role) === 'admin')
+                <li>
+                    <a href="{{ route('products.index') }}" class="nav-item-link {{ request()->routeIs('products.*') ? 'active' : '' }}">
+                        <i class="bi bi-box-seam-fill"></i> Products Inventory
                     </a>
-                <?php endforeach; ?>
-            </div>
+                </li>
+                <li>
+                    <a href="{{ route('categories.index') }}" class="nav-item-link {{ request()->routeIs('categories.*') ? 'active' : '' }}">
+                        <i class="bi bi-grid-fill"></i> Categories
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ route('suppliers.index') }}" class="nav-item-link {{ request()->routeIs('suppliers.*') ? 'active' : '' }}">
+                        <i class="bi bi-truck"></i> Suppliers
+                    </a>
+                </li>
+            @endif
 
-            <div class="products-grid">
-                <?php if (empty($products)): ?>
-                    <div style="grid-column: 1 / -1; background: #ffffff; padding: 40px; text-align: center; border-radius: 20px; color: #64748b; font-weight: 700;">
-                        Belum ada produk skincare dalam kategori ini.
-                    </div>
-                <?php else: ?>
-                    <?php foreach ($products as $p): ?>
-                        <?php 
-                            $priceVal = (float)$p['price'];
-                            if ($priceVal < 1000 && $priceVal > 0) { $priceVal *= 1000; }
-                            $formattedPrice = "Rp " . number_format($priceVal, 0, ',', '.');
-                        ?>
-                        <div class="product-card">
-                            <div>
-                                <div class="card-header-tag">
-                                    <span class="tag-category"><?= htmlspecialchars($p['category_name'] ?? 'SKINCARE') ?></span>
-                                    <span class="tag-stock">🟢 <?= $p['stock'] ?> unit</span>
-                                </div>
-                                <h3 class="product-title"><?= htmlspecialchars($p['name']) ?></h3>
-                                <div class="product-price"><?= $formattedPrice ?></div>
-                            </div>
-                            
-                            <div class="card-actions">
-                                <a href="/catalog/edit?id=<?= $p['id'] ?>" class="btn-action-edit">Edit</a>
-                                <a href="/catalog/delete?id=<?= $p['id'] ?>" class="btn-action-delete" onclick="return confirm('Yakin ingin menghapus produk ini?');">Hapus</a>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
+            <li>
+                <a href="{{ route('purchases.index') }}" class="nav-item-link {{ request()->routeIs('purchases.*') ? 'active' : '' }}">
+                    <i class="bi bi-download"></i> Barang Masuk
+                </a>
+            </li>
+            <li>
+                <a href="{{ route('sales.index') }}" class="nav-item-link {{ request()->routeIs('sales.*') ? 'active' : '' }}">
+                    <i class="bi bi-cart-check-fill"></i> Transaksi Keluar
+                </a>
+            </li>
+            <li>
+                <a href="{{ route('reports.index') }}" class="nav-item-link {{ request()->routeIs('reports.*') ? 'active' : '' }}">
+                    <i class="bi bi-file-earmark-bar-graph"></i> Laporan Penjualan
+                </a>
+            </li>
 
-        </div>
-
-        <!-- Panel Kanan -->
-        <div class="right-panel">
-            
-            <div class="summary-card-top">
-                <div>
-                    <span style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">RINGKASAN INVENTARIS</span>
-                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 4px;"><?= $totalProducts ?> <span style="font-size: 11px; color: #64748b;">Jenis Skincare</span></div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 18px; font-weight: 800; color: #0072ff;"><?= $totalStock ?></div>
-                    <div style="font-size: 10px; color: #64748b; font-weight: 700;">Total Unit Stok</div>
-                </div>
-            </div>
-
-            <div class="warning-card">
-                <div>
-                    <span style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">STOK MENIPIS</span>
-                    <div style="font-size: 15px; font-weight: 800; color: #ef4444; margin-top: 2px;"><?= $lowStockCount ?> Produk</div>
-                </div>
-                <span style="font-size: 20px;">⚠️</span>
-            </div>
-
-            <div class="form-quick-card">
-                <h4 style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 14px;">+ Tambah Skincare Quick</h4>
-                
-                <?php if (!empty($errors)): ?>
-                    <div style="background:#fef2f2; color:#ef4444; padding:8px; border-radius:10px; font-size:11px; margin-bottom:10px;">
-                        <?= htmlspecialchars($errors[0]) ?>
-                    </div>
-                <?php endif; ?>
-
-                <form method="POST" action="">
-                    @csrf
-                    <input type="hidden" name="action" value="quick_add">
-                    
-                    <div>
-                        <label>Nama Produk</label>
-                        <input type="text" name="name" placeholder="Nama Produk Skincare" required>
-                    </div>
-
-                    <div>
-                        <label>Kategori</label>
-                        <select name="category_id" required>
-                            <option value="">Pilih Kategori</option>
-                            <?php foreach ($categories as $cat): ?>
-                                <option value="<?= $cat['id'] ?>"><?= htmlspecialchars($cat['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label>Harga (Rp)</label>
-                        <input type="number" name="price" placeholder="85000" required>
-                    </div>
-
-                    <div>
-                        <label>Jumlah Stok</label>
-                        <input type="number" name="stock" placeholder="0" value="0" required>
-                    </div>
-
-                    <button type="submit" class="btn-primary-blue">Simpan Skincare</button>
-                </form>
-            </div>
-
-        </div>
-
+            @if(auth()->check() && strtolower(auth()->user()->role) === 'admin')
+                <li>
+                    <a href="{{ route('users.index') }}" class="nav-item-link {{ request()->routeIs('users.*') ? 'active' : '' }}">
+                        <i class="bi bi-people-fill"></i> User Management
+                    </a>
+                </li>
+            @endif
+        </ul>
     </div>
-</div>
 
+    <form action="{{ route('logout') }}" method="POST">
+        @csrf
+        <button type="submit" class="btn btn-outline-secondary w-100 btn-sm rounded-3">
+            <i class="bi bi-box-arrow-right me-1"></i> Logout
+        </button>
+    </form>
+</aside>
+
+<main class="main-content">
+    <!-- HERO BANNER KASIR ELEGANT -->
+    <div class="hero-banner d-flex justify-content-between align-items-center">
+        <div>
+            <span class="badge bg-white text-dark rounded-pill px-3 py-1 mb-2 fw-semibold" style="font-size: 11px;">
+                <i class="bi bi-sparkles text-warning me-1"></i> GlowDesk Executive Overview
+            </span>
+            <h3 class="fw-bold mb-1">Selamat Datang, {{ auth()->user()->name }}! ✨</h3>
+            <p class="text-white-50 small mb-0">Pantau pergerakan produk skincare, sisa stok, dan tren penjualan kasir secara realtime.</p>
+        </div>
+        <div>
+            <a href="{{ route('sales.index') }}" class="btn btn-light rounded-3 px-3 py-2 fw-bold text-dark shadow-sm">
+                <i class="bi bi-cart-plus me-1 text-success"></i> Transaksi Kasir POS
+            </a>
+        </div>
+    </div>
+
+    <!-- 4 KARTU STATISTIK RINGKAS -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card card-custom border-0 shadow-sm d-flex flex-row align-items-center justify-content-between">
+                <div>
+                    <small class="text-muted fw-bold" style="font-size: 11px; letter-spacing: 0.5px;">TOTAL PRODUK</small>
+                    <h3 class="fw-bold text-dark mb-0 mt-1">{{ $totalProducts ?? 0 }}</h3>
+                    <small class="text-success fw-semibold" style="font-size: 10px;"><i class="bi bi-arrow-up-short"></i> Aktif di Katalog</small>
+                </div>
+                <div class="stat-icon icon-box-1"><i class="bi bi-box-seam-fill"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-custom border-0 shadow-sm d-flex flex-row align-items-center justify-content-between">
+                <div>
+                    <small class="text-muted fw-bold" style="font-size: 11px; letter-spacing: 0.5px;">KATEGORI</small>
+                    <h3 class="fw-bold text-dark mb-0 mt-1">{{ $totalCategories ?? 0 }}</h3>
+                    <small class="text-muted" style="font-size: 10px;">Terorganisir</small>
+                </div>
+                <div class="stat-icon icon-box-2"><i class="bi bi-grid-fill"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-custom border-0 shadow-sm d-flex flex-row align-items-center justify-content-between">
+                <div>
+                    <small class="text-muted fw-bold" style="font-size: 11px; letter-spacing: 0.5px;">SUPPLIER</small>
+                    <h3 class="fw-bold text-dark mb-0 mt-1">{{ $totalSuppliers ?? 0 }}</h3>
+                    <small class="text-muted" style="font-size: 10px;">Mitra Terhubung</small>
+                </div>
+                <div class="stat-icon icon-box-3"><i class="bi bi-truck"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card card-custom border-0 shadow-sm d-flex flex-row align-items-center justify-content-between">
+                <div>
+                    <small class="text-muted fw-bold" style="font-size: 11px; letter-spacing: 0.5px;">BARANG MASUK</small>
+                    <h3 class="fw-bold text-dark mb-0 mt-1">{{ $totalPurchases ?? 0 }}</h3>
+                    <small class="text-primary fw-semibold" style="font-size: 10px;"><i class="bi bi-clock-history"></i> Riwayat Masuk</small>
+                </div>
+                <div class="stat-icon icon-box-4"><i class="bi bi-download"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GRAFIK & ALERTA STOK -->
+    <div class="row g-4">
+        <!-- GRAFIK UTAMA PERGERAKAN STOK -->
+        <div class="col-lg-8">
+            <div class="card card-custom border-0 shadow-sm h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-0">Tren Penjualan & Stok</h5>
+                        <small class="text-muted" style="font-size: 12px;">Analisis pergerakan item (6 bulan terakhir)</small>
+                    </div>
+                    <span class="badge bg-light text-dark border rounded-pill px-3 py-1" style="font-size: 11px;">
+                        <i class="bi bi-clock-history me-1"></i> Update Realtime
+                    </span>
+                </div>
+                <div style="height: 310px;" class="mt-2">
+                    <canvas id="salesChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- STOK MENIPIS & SHORTCUT -->
+        <div class="col-lg-4 d-flex flex-column gap-3">
+            <div class="card card-custom border-0 shadow-sm flex-fill">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0 text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Peringatan Stok Menipis (≤ 5)</h6>
+                    <span class="badge bg-danger rounded-pill px-2 py-1">{{ count($lowStockProducts) }} Item</span>
+                </div>
+                <div class="table-responsive" style="max-height: 170px; overflow-y: auto;">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th class="py-2">Produk Skincare</th>
+                                <th class="text-center py-2">Sisa Stok</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($lowStockProducts as $product)
+                                <tr>
+                                    <td><strong class="text-dark">{{ $product->name }}</strong></td>
+                                    <td class="text-center">
+                                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger rounded-pill px-2 py-1">
+                                            {{ $product->stock }} pcs
+                                        </span>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="2" class="text-center py-4 text-muted" style="font-size: 0.8rem;">
+                                        <i class="bi bi-shield-check text-success d-block fs-5 mb-1"></i>
+                                        Semua persediaan produk terhitung aman.
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SHORTCUT KASIR -->
+            <div class="card card-custom border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="stat-icon bg-white text-dark rounded-circle border shadow-sm fs-5">
+                            <i class="bi bi-upc-scan text-primary"></i>
+                        </div>
+                        <div>
+                            <h6 class="fw-bold mb-0" style="font-size: 0.9rem;">POS Scanner Active</h6>
+                            <small class="text-muted" style="font-size: 11px;">Barcode & SKU Reader Siap</small>
+                        </div>
+                    </div>
+                    <a href="{{ route('sales.index') }}" class="btn btn-sm btn-dark rounded-3 px-3">Buka Kasir</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    const ctx = document.getElementById('salesChart').getContext('2d');
+    
+    // Gradient Warna Smooth
+    const gradientSales = ctx.createLinearGradient(0, 0, 0, 300);
+    gradientSales.addColorStop(0, 'rgba(46, 204, 113, 0.25)');
+    gradientSales.addColorStop(1, 'rgba(46, 204, 113, 0.0)');
+
+    const gradientPurchases = ctx.createLinearGradient(0, 0, 0, 300);
+    gradientPurchases.addColorStop(0, 'rgba(52, 152, 219, 0.25)');
+    gradientPurchases.addColorStop(1, 'rgba(52, 152, 219, 0.0)');
+
+    const salesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {!! json_encode($chartLabels ?? []) !!},
+            datasets: [
+                {
+                    label: 'Produk Terjual (Pcs)',
+                    data: {!! json_encode($salesChartData ?? []) !!},
+                    borderColor: '#2ecc71',
+                    backgroundColor: gradientSales,
+                    borderWidth: 2.5,
+                    pointBackgroundColor: '#2ecc71',
+                    pointBorderColor: '#ffffff',
+                    pointHoverRadius: 6,
+                    fill: true,
+                    tension: 0.35
+                },
+                {
+                    label: 'Barang Masuk (Pcs)',
+                    data: {!! json_encode($purchasesChartData ?? []) !!},
+                    borderColor: '#3498db',
+                    backgroundColor: gradientPurchases,
+                    borderWidth: 2.5,
+                    pointBackgroundColor: '#3498db',
+                    pointBorderColor: '#ffffff',
+                    pointHoverRadius: 6,
+                    fill: true,
+                    tension: 0.35
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { 
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        font: { family: 'Segoe UI', size: 12, weight: '600' }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false }
+                },
+                y: { 
+                    beginAtZero: true,
+                    grid: { color: '#f5ebe4' }
+                }
+            }
+        }
+    });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

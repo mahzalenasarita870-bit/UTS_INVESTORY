@@ -1,140 +1,120 @@
-<?php
-ini_set('display_errors', 0);
-error_reporting(0);
-
-use Illuminate\Support\Facades\DB;
-
-// Memulai session PHP jika belum aktif
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-$pdo = DB::connection()->getPdo();
-
-if (isset($_SESSION['user'])) {
-    header('Location: /dashboard');
-    exit;
-}
-
-$error = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
-
-    if (empty($username) || empty($password)) {$error = 'Username dan password wajib diisi.';
-    } else {
-        try {
-            $columns =$pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
-            
-            $passColumn = 'password';
-            if (!in_array('password', $columns)) {
-                foreach ($columns as$col) {
-                    if (strpos($col, 'pass') !== false) {
-                        $passColumn =$col;
-                        break;
-                    }
-                }
-            }
-
-            if (!in_array($passColumn, $columns)) {$pdo->exec("ALTER TABLE users ADD COLUMN password VARCHAR(255) NOT NULL DEFAULT ''");
-                $passColumn = 'password';
-            }
-
-            $stmt =$pdo->prepare("SELECT * FROM users WHERE username = :username");
-            $stmt->execute(['username' =>$username]);
-            $user =$stmt->fetch();
-
-            $isValid = false;
-
-            if ($user) {
-                if (isset($user[$passColumn])) {$dbPass = $user[$passColumn];
-                    if (password_verify($password, $dbPass)) {$isValid = true;
-                    } elseif ($password === $dbPass) {$isValid = true;
-                    } elseif (md5($password) === $dbPass) {$isValid = true;
-                    }
-                }
-            }
-
-            if (!$isValid) {
-                if (strtolower($username) === 'admin') {
-                    if ($password === 'password') {$newHash = password_hash('password', PASSWORD_BCRYPT);
-                        if ($user) {
-                            $updateStmt =$pdo->prepare("UPDATE users SET `$passColumn` = :pass WHERE username = 'admin'");
-                            $updateStmt->execute(['pass' =>$newHash]);
-                        } else {
-                            $insertStmt =$pdo->prepare("INSERT INTO users (username, `$passColumn`, role) VALUES ('admin', :pass, 'admin')");
-                            $insertStmt->execute(['pass' =>$newHash]);
-                            $user = ['id' =>$pdo->lastInsertId(), 'username' => 'admin', 'role' => 'admin'];
-                        }
-                        $isValid = true;
-                    }
-                }
-            }
-
-            if ($isValid) {$_SESSION['user'] = [
-                    'id'       => $user['id'] ?? 1,                                          'username' =>$user['username'] ?? 'admin',
-                    'role'     => $user['role'] ?? 'admin'
-                ];
-                
-                // Menggunakan redirect Laravel agar aman
-                echo "<script>window.location.href='/dashboard';</script>";
-                exit;
-            } else {
-                $error = 'Username atau password salah.';
-            }
-
-        } catch (Exception $e) {
-            $error = 'Terjadi kesalahan sistem: ' .$e->getMessage();
-        }
-    }
-}
-?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MahzaGlow - Login</title>
-    <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+    <title>Login System - GlowDesk</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --bg-main: #fbf7f4;
+            --bg-card: #ffffff;
+            --btn-primary: #c69c82;
+            --btn-hover: #b58b71;
+            --text-dark: #3a2e2b;
+            --border-color: #f0e6df;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-dark);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 10px 30px rgba(58, 46, 43, 0.05);
+        }
+
+        .brand-icon {
+            width: 50px;
+            height: 50px;
+            background: #d9bfb0;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-size: 24px;
+            margin: 0 auto 15px auto;
+        }
+
+        .form-control {
+            background-color: #fbf7f4;
+            border: 1px solid #e8ded8;
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text-dark);
+        }
+
+        .form-control:focus {
+            background-color: #ffffff;
+            border-color: var(--btn-primary);
+            box-shadow: 0 0 0 0.25rem rgba(198, 156, 130, 0.25);
+            color: var(--text-dark);
+        }
+
+        .btn-glow {
+            background-color: var(--btn-primary);
+            color: #ffffff;
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-glow:hover {
+            background-color: var(--btn-hover);
+            color: #ffffff;
+        }
+    </style>
 </head>
-<body style="display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; padding:0; background:#0f172a;">
+<body>
 
-    <div style="width:100%; max-width:400px; background:#ffffff; border-radius:28px; padding:36px 30px; box-shadow:0 25px 60px rgba(0,0,0,0.4); border:1px solid #f1f5f9; box-sizing:border-box;">
-        
-        <div style="text-align:center; margin-bottom:28px;">
-            <div class="brand-icon-glow" style="margin:0 auto 14px auto; width:52px; height:52px; font-size:24px; display:flex; align-items:center; justify-content:center; background:#2563eb; color:#fff; border-radius:12px; font-weight:bold;">M</div>
-            <h2 style="font-size:22px; font-weight:800; color:#0f172a; margin:0 0 4px 0;">MahzaGlow</h2>
-            <p style="font-size:12px; color:#64748b; font-weight:600; margin:0;">Skincare Inventory Management</p>
+<div class="login-card">
+    <div class="text-center mb-4">
+        <div class="brand-icon">
+            <i class="bi bi-flower1"></i>
         </div>
-
-        <?php if (!empty($error)): ?>
-            <div style="background:#fef2f2; border:1px solid #fee2e2; color:#ef4444; padding:12px; border-radius:14px; margin-bottom:20px; font-size:12px; font-weight:700; text-align:center;">
-                ⚠️ {{ $error }}
-            </div>
-        <?php endif; ?>
-
-        <form method="POST" action="">
-            @csrf
-            <div style="margin-bottom:16px;">
-                <label style="color:#475569; font-weight:800; font-size:11px; text-transform:uppercase; display:block;">USERNAME</label>
-                <input type="text" name="username" placeholder="Masukkan username..." required style="width:100%; padding:10px; margin-top:6px; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:8px;">
-            </div>
-
-            <div style="margin-bottom:24px;">
-                <label style="color:#475569; font-weight:800; font-size:11px; text-transform:uppercase; display:block;">PASSWORD</label>
-                <input type="password" name="password" placeholder="Masukkan password..." required style="width:100%; padding:10px; margin-top:6px; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:8px;">
-            </div>
-
-            <button type="submit" class="btn-primary-blue" style="padding:14px; width:100%; background:#2563eb; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Sign In</button>
-        </form>
-
-        <div style="margin-top:24px; padding-top:18px; border-top:1px dashed #e2e8f0; text-align:center; font-size:11px; color:#64748b;">
-            <p style="font-weight:700; color:#0f172a; margin-bottom:4px;">Akun Pengujian:</p>
-            <p style="margin:2px 0;">Admin: admin - Password: password</p>
-        </div>
-
+        <h4 class="fw-bold mb-1">Login System</h4>
+        <small class="text-muted">GlowDesk - Skincare Inventory & POS</small>
     </div>
+
+    @if($errors->any())
+        <div class="alert alert-danger border-0 rounded-3 mb-4 small">
+            {{ $errors->first() }}
+        </div>
+    @endif
+
+    <form action="{{ route('login') }}" method="POST">
+        @csrf
+        <div class="mb-3">
+            <label for="email" class="form-label small fw-semibold text-muted">Email</label>
+            <input type="email" class="form-control" id="email" name="email" value="{{ old('email') }}" required autofocus placeholder="admin@mahzaglow.com">
+        </div>
+
+        <div class="mb-4">
+            <label for="password" class="form-label small fw-semibold text-muted">Password</label>
+            <input type="password" class="form-control" id="password" name="password" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="btn btn-glow w-100">
+            Login
+        </button>
+    </form>
+</div>
 
 </body>
 </html>
