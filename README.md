@@ -77,9 +77,9 @@ Aplikasi dibangun menggunakan pola arsitektur standar **Laravel MVC (Model-View-
   └───< [Purchase] ───< [PurchaseItem] >────┘
             │
             └───> [Supplier]
+```
 
-
-###  5. Business Rules & Transaction Logic
+### 💡 5. Business Rules & Transaction Logic
 
 | Poin Business Rule | Deskripsi Implementasi Logic Server |
 | :--- | :--- |
@@ -90,7 +90,7 @@ Aplikasi dibangun menggunakan pola arsitektur standar **Laravel MVC (Model-View-
 
 ---
 
-###  6. Installation & Environment Setup
+### 🚀 6. Installation & Environment Setup
 
 | Langkah | Perintah CLI / Command | Keterangan |
 | :--- | :--- | :--- |
@@ -106,7 +106,7 @@ Aplikasi dibangun menggunakan pola arsitektur standar **Laravel MVC (Model-View-
 
 ---
 
-###  7. Demo Accounts
+### 🔑 7. Demo Accounts
 
 Gunakan akun dummy bawaan seeder untuk pengujian aplikasi (Password terenkripsi via `Bcrypt`):
 
@@ -117,7 +117,7 @@ Gunakan akun dummy bawaan seeder untuk pengujian aplikasi (Password terenkripsi 
 
 ---
 
-###  8. Minimum Test Scenarios
+### 🧪 8. Minimum Test Scenarios
 
 | Modul | Skenario Uji | Ekspektasi Hasil | Pass/Fail |
 | :--- | :--- | :--- | :---: |
@@ -133,7 +133,7 @@ Gunakan akun dummy bawaan seeder untuk pengujian aplikasi (Password terenkripsi 
 
 ---
 
-###  9. Known Limitations
+### 📝 9. Known Limitations
 
 | Keterbatasan | Deskripsi |
 | :--- | :--- |
