@@ -143,5 +143,8 @@ Gunakan akun dummy bawaan seeder untuk pengujian aplikasi (Password terenkripsi 
 ---
 **GlowDesk POS & Inventory System** — Built for Web Programming 2 Project Assessment.
 
+
+
+
 <video src="./20261026-1706-15.0819129.mp4" controls="controls" width="100%">
 </video>
